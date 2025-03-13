@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web Screenshot Tool</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <script src="https://unpkg.com/docx@7.8.2/build/index.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Pharma QA/QC Screenshot Tool</h1>
+        
+        <div class="button-container" id="capture-container">
+            <div class="screenshot-options">
+                <h3>Screenshot Type:</h3>
+                <button id="fullscreen-btn" class="option-button selected">Full Screen</button>
+                <button id="window-btn" class="option-button">Window/Application</button>
+                <button id="tab-btn" class="option-button">Browser Tab</button>
+            </div>
+            
+            <button id="capture-btn" class="action-button">Capture Screenshot</button>
+        </div>
+        
+        <!-- Sequential Capture Controls -->
+        <div class="sequence-container">
+            <div class="toggle-container">
+                <label class="toggle-switch">
+                    <input type="checkbox" id="sequence-toggle">
+                    <span class="toggle-slider"></span>
+                </label>
+                <span>Sequential Capture Mode</span>
+            </div>
+            <div id="sequence-controls" class="sequence-controls" style="display: none;">
+                <div class="sequence-info">
+                    <input type="text" id="sequence-name" placeholder="Sequence Name (e.g., Login Test)">
+                    <div class="counter-container">
+                        <label>Current Step:</label>
+                        <span id="sequence-counter">1</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div id="status-message" class="status-message"></div>
+        
+        <div id="screenshot-list" class="screenshot-list" style="display:none;">
+            <h2>Captured Screenshots</h2>
+            <div id="screenshots-container"></div>
+        </div>
+        
+        <div class="export-options" style="display:none;" id="export-options">
+            <button id="export-btn" class="end-button">Export as PNG Files</button>
+            <button id="export-word-btn" class="end-button word-btn">Export to Word</button>
+        </div>
+        
+        <!-- Name Screenshot Modal with Metadata and Templates -->
+        <div id="name-modal" class="modal" style="display:none;">
+            <div class="modal-content metadata-modal">
+                <h2>Screenshot Details</h2>
+                <div class="tab-container">
+                    <div class="tabs">
+                        <button class="tab-button active" data-tab="details">Details</button>
+                        <button class="tab-button" data-tab="metadata">Metadata</button>
+                        <button class="tab-button" data-tab="templates">Templates</button>
+                    </div>
+                    
+                    <div class="tab-content">
+                        <!-- Details Tab -->
+                        <div class="tab-pane active" id="details-tab">
+                            <img id="modal-preview" alt="Screenshot preview" style="max-width: 100%; max-height: 200px; margin: 10px 0;">
+                            <input id="screenshot-name" type="text" placeholder="Enter screenshot name" autofocus>
+                            
+                            <!-- Annotation Controls -->
+                            <div class="annotation-controls">
+                                <button id="annotation-toggle" class="icon-button">
+                                    <i class="fas fa-pencil-alt"></i> Annotate
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <!-- Metadata Tab -->
+                        <div class="tab-pane" id="metadata-tab">
+                            <div class="metadata-fields">
+                                <div class="form-group">
+                                    <label for="meta-environment">Environment:</label>
+                                    <select id="meta-environment">
+                                        <option value="DEV">Development</option>
+                                        <option value="QA" selected>Quality Assurance</option>
+                                        <option value="UAT">User Acceptance</option>
+                                        <option value="PROD">Production</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="meta-tester">Tester Name:</label>
+                                    <input type="text" id="meta-tester" placeholder="Your Name">
+                                </div>
+                                <div class="form-group">
+                                    <label for="meta-software">Software/Module:</label>
+                                    <input type="text" id="meta-software" placeholder="Software Name and Version">
+                                </div>
+                                <div class="form-group">
+                                    <label for="meta-test-id">Test Case ID:</label>
+                                    <input type="text" id="meta-test-id" placeholder="e.g., TC-001">
+                                </div>
+                                <div class="checkbox-group">
+                                    <input type="checkbox" id="meta-timestamp" checked>
+                                    <label for="meta-timestamp">Include Timestamp</label>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Templates Tab -->
+                        <div class="tab-pane" id="templates-tab">
+                            <div class="templates-container">
+                                <div class="templates-list">
+                                    <h3>Saved Templates</h3>
+                                    <ul id="template-list">
+                                        <li><button data-template="login">Login Validation</button></li>
+                                        <li><button data-template="data-entry">Data Entry Validation</button></li>
+                                        <li><button data-template="report">Report Generation</button></li>
+                                    </ul>
+                                </div>
+                                <div class="template-actions">
+                                    <button id="save-template" class="small-button">Save Current as Template</button>
+                                    <input type="text" id="template-name" placeholder="Template Name">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="modal-actions">
+                    <button id="modal-cancel">Cancel</button>
+                    <button id="modal-save">Save Screenshot</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Annotation Modal -->
+        <div id="annotation-modal" class="modal fullscreen-modal" style="display:none;">
+            <div class="annotation-container">
+                <div class="annotation-toolbar">
+                    <div class="tool-group">
+                        <button id="draw-tool" class="annotation-tool active" data-tool="draw">
+                            <i class="fas fa-pencil-alt"></i>
+                        </button>
+                        <button id="arrow-tool" class="annotation-tool" data-tool="arrow">
+                            <i class="fas fa-long-arrow-alt-right"></i>
+                        </button>
+                        <button id="rectangle-tool" class="annotation-tool" data-tool="rectangle">
+                            <i class="far fa-square"></i>
+                        </button>
+                        <button id="circle-tool" class="annotation-tool" data-tool="circle">
+                            <i class="far fa-circle"></i>
+                        </button>
+                        <button id="text-tool" class="annotation-tool" data-tool="text">
+                            <i class="fas fa-font"></i>
+                        </button>
+                    </div>
+                    <div class="color-picker">
+                        <button class="color-option active" data-color="#ff0000" style="background-color: #ff0000;"></button>
+                        <button class="color-option" data-color="#00ff00" style="background-color: #00ff00;"></button>
+                        <button class="color-option" data-color="#0000ff" style="background-color: #0000ff;"></button>
+                        <button class="color-option" data-color="#ffff00" style="background-color: #ffff00;"></button>
+                        <button class="color-option" data-color="#000000" style="background-color: #000000;"></button>
+                    </div>
+                    <div class="line-width">
+                        <button class="width-option" data-width="2">Thin</button>
+                        <button class="width-option active" data-width="5">Medium</button>
+                        <button class="width-option" data-width="10">Thick</button>
+                    </div>
+                    <div class="annotation-actions">
+                        <button id="annotation-clear" class="action-button-small">Clear</button>
+                        <button id="annotation-cancel" class="action-button-small">Cancel</button>
+                        <button id="annotation-done" class="action-button-small">Done</button>
+                    </div>
+                </div>
+                <div class="canvas-container">
+                    <canvas id="annotation-canvas"></canvas>
+                    <div id="text-input-container" style="display: none; position: absolute;">
+                        <input type="text" id="annotation-text-input" placeholder="Enter text">
+                        <button id="add-text-btn">Add</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="js/script.js"></script>
+</body>
+</html> 
