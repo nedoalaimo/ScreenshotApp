@@ -3,14 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Web Screenshot Tool</title>
+    <title>ScreenshotApp</title>
     <link rel="stylesheet" href="css/styles.css">
     <script src="https://unpkg.com/docx@7.8.2/build/index.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
     <div class="container">
-        <h1>Pharma QA/QC Screenshot Tool</h1>
+        <h1>ScreenshotApp</h1>
+        
+        <div class="mode-selector">
+            <label>App Mode:</label>
+            <select id="app-mode">
+                <option value="general">General Purpose</option>
+                <option value="validation">GMP Validation</option>
+            </select>
+        </div>
         
         <div class="button-container" id="capture-container">
             <div class="screenshot-options">
@@ -18,6 +26,7 @@
                 <button id="fullscreen-btn" class="option-button selected">Full Screen</button>
                 <button id="window-btn" class="option-button">Window/Application</button>
                 <button id="tab-btn" class="option-button">Browser Tab</button>
+                <button id="region-btn" class="option-button">Select Region</button>
             </div>
             
             <button id="capture-btn" class="action-button">Capture Screenshot</button>
@@ -72,17 +81,50 @@
                             <img id="modal-preview" alt="Screenshot preview" style="max-width: 100%; max-height: 200px; margin: 10px 0;">
                             <input id="screenshot-name" type="text" placeholder="Enter screenshot name" autofocus>
                             
-                            <!-- Annotation Controls -->
+                            <!-- Annotation and Crop Controls -->
                             <div class="annotation-controls">
                                 <button id="annotation-toggle" class="icon-button">
                                     <i class="fas fa-pencil-alt"></i> Annotate
+                                </button>
+                                <button id="crop-toggle" class="icon-button">
+                                    <i class="fas fa-crop-alt"></i> Crop
                                 </button>
                             </div>
                         </div>
                         
                         <!-- Metadata Tab -->
                         <div class="tab-pane" id="metadata-tab">
-                            <div class="metadata-fields">
+                            <div id="general-metadata" class="metadata-fields">
+                                <div class="form-group">
+                                    <label for="meta-category">Category:</label>
+                                    <select id="meta-category">
+                                        <option value="General">General</option>
+                                        <option value="Bug">Bug Report</option>
+                                        <option value="Feature">Feature</option>
+                                        <option value="UI">UI/UX</option>
+                                        <option value="Documentation">Documentation</option>
+                                        <option value="Testing">Testing</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="meta-author">Author:</label>
+                                    <input type="text" id="meta-author" placeholder="Your Name">
+                                </div>
+                                <div class="form-group">
+                                    <label for="meta-project">Project/Application:</label>
+                                    <input type="text" id="meta-project" placeholder="Project or Application Name">
+                                </div>
+                                <div class="form-group">
+                                    <label for="meta-tags">Tags:</label>
+                                    <input type="text" id="meta-tags" placeholder="Tags separated by commas">
+                                </div>
+                                <div class="checkbox-group">
+                                    <input type="checkbox" id="meta-timestamp" checked>
+                                    <label for="meta-timestamp">Include Timestamp</label>
+                                </div>
+                            </div>
+                            
+                            <div id="validation-metadata" class="metadata-fields" style="display: none;">
                                 <div class="form-group">
                                     <label for="meta-environment">Environment:</label>
                                     <select id="meta-environment">
@@ -104,9 +146,13 @@
                                     <label for="meta-test-id">Test Case ID:</label>
                                     <input type="text" id="meta-test-id" placeholder="e.g., TC-001">
                                 </div>
+                                <div class="form-group">
+                                    <label for="meta-protocol">Protocol/SOP:</label>
+                                    <input type="text" id="meta-protocol" placeholder="e.g., SOP-QA-001">
+                                </div>
                                 <div class="checkbox-group">
-                                    <input type="checkbox" id="meta-timestamp" checked>
-                                    <label for="meta-timestamp">Include Timestamp</label>
+                                    <input type="checkbox" id="meta-timestamp-validation" checked>
+                                    <label for="meta-timestamp-validation">Include Timestamp</label>
                                 </div>
                             </div>
                         </div>
@@ -117,9 +163,7 @@
                                 <div class="templates-list">
                                     <h3>Saved Templates</h3>
                                     <ul id="template-list">
-                                        <li><button data-template="login">Login Validation</button></li>
-                                        <li><button data-template="data-entry">Data Entry Validation</button></li>
-                                        <li><button data-template="report">Report Generation</button></li>
+                                        <!-- Templates will be loaded dynamically -->
                                     </ul>
                                 </div>
                                 <div class="template-actions">
@@ -183,6 +227,47 @@
                         <input type="text" id="annotation-text-input" placeholder="Enter text">
                         <button id="add-text-btn">Add</button>
                     </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Crop Modal -->
+        <div id="crop-modal" class="modal fullscreen-modal" style="display:none;">
+            <div class="crop-container">
+                <div class="crop-toolbar">
+                    <div class="crop-instructions">
+                        <span>Drag to select the area to crop</span>
+                    </div>
+                    <div class="crop-actions">
+                        <button id="crop-cancel" class="action-button-small">Cancel</button>
+                        <button id="crop-apply" class="action-button-small">Apply Crop</button>
+                    </div>
+                </div>
+                <div class="canvas-container">
+                    <canvas id="crop-canvas"></canvas>
+                    <div id="crop-overlay"></div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Region Selection Modal -->
+        <div id="region-modal" class="modal fullscreen-modal" style="display:none;">
+            <div class="region-container">
+                <div class="region-toolbar">
+                    <div class="region-instructions">
+                        <span>Position your mouse over the screen you want to capture, then drag to select the region</span>
+                    </div>
+                    <div class="region-info">
+                        <span id="region-size">0 x 0</span>
+                    </div>
+                    <div class="region-actions">
+                        <button id="region-cancel" class="action-button-small">Cancel</button>
+                        <button id="region-capture" class="action-button-small">Capture</button>
+                    </div>
+                </div>
+                <div class="region-content">
+                    <div id="region-overlay"></div>
+                    <video id="region-preview" autoplay muted></video>
                 </div>
             </div>
         </div>

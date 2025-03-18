@@ -10,26 +10,59 @@ let sequenceCounter = 1;
 let sequenceName = '';
 let currentMetadata = {};
 let activeTemplate = null;
-let savedTemplates = {
+let appMode = 'general'; // Default app mode: general or validation
+
+// Default templates for general mode
+const defaultGeneralTemplates = {
   'login': {
     name: 'Login Validation',
-    environment: 'QA',
-    software: 'Login Module v1.2',
-    testId: 'TC001'
+    category: 'Testing',
+    project: 'Web Application',
+    tags: 'login,auth,ui'
   },
   'data-entry': {
     name: 'Data Entry Validation',
-    environment: 'QA',
-    software: 'Data Entry Form v2.0',
-    testId: 'TC045'
+    category: 'Testing',
+    project: 'Web Application',
+    tags: 'forms,validation,data'
   },
   'report': {
     name: 'Report Generation',
-    environment: 'QA',
-    software: 'Reporting Module v3.1',
-    testId: 'TC098'
+    category: 'Documentation',
+    project: 'Web Application',
+    tags: 'reports,export,charts'
   }
 };
+
+// Default templates for validation mode
+const defaultValidationTemplates = {
+  'login-validation': {
+    name: 'Login Validation',
+    environment: 'QA',
+    software: 'System v1.0',
+    testId: 'TC001',
+    protocol: 'SOP-QA-001'
+  },
+  'data-entry-validation': {
+    name: 'Data Entry Validation',
+    environment: 'QA',
+    software: 'Data Entry Module v2.0',
+    testId: 'TC045',
+    protocol: 'SOP-QA-002'
+  },
+  'report-validation': {
+    name: 'Report Generation Validation',
+    environment: 'QA',
+    software: 'Reporting Module v3.1',
+    testId: 'TC098',
+    protocol: 'SOP-QA-003'
+  }
+};
+
+// Load templates from localStorage or use defaults
+let savedGeneralTemplates = JSON.parse(localStorage.getItem('screenshotGeneralTemplates')) || defaultGeneralTemplates;
+let savedValidationTemplates = JSON.parse(localStorage.getItem('screenshotValidationTemplates')) || defaultValidationTemplates;
+let savedTemplates = savedGeneralTemplates; // Default to general templates
 
 // Annotation variables
 let isAnnotating = false;
@@ -43,11 +76,30 @@ let startX = 0;
 let startY = 0;
 let originalImage = null;
 
+// Crop elements
+let cropToggle;
+let cropModal;
+let cropCanvas;
+let cropOverlay;
+let cropCancelBtn;
+let cropApplyBtn;
+
+// Crop state variables
+let isCropping = false;
+let cropCtx = null;
+let cropStartX = 0;
+let cropStartY = 0;
+let isCreatingCrop = false;
+let isDraggingCrop = false;
+let isResizingCrop = false;
+let cropBox = { x: 0, y: 0, width: 0, height: 0 };
+
 // DOM Elements
 let captureContainer;
 let fullscreenBtn;
 let windowBtn;
 let tabBtn;
+let regionBtn;
 let captureBtn;
 let exportBtn;
 let exportWordBtn;
@@ -61,16 +113,35 @@ let modalCancelBtn;
 let modalPreview;
 let screenshotsContainer;
 
+// Region selection elements
+let regionModal;
+let regionPreview;
+let regionOverlay;
+let regionSize;
+let regionCancelBtn;
+let regionCaptureBtn;
+
 // Tab elements
 let tabButtons;
 let tabPanes;
 
-// Metadata elements
+// General metadata elements
+let metaCategory;
+let metaAuthor;
+let metaProject;
+let metaTags;
+let metaTimestamp;
+
+// Validation metadata elements
 let metaEnvironment;
 let metaTester;
 let metaSoftware;
 let metaTestId;
-let metaTimestamp;
+let metaProtocol;
+let metaTimestampValidation;
+
+// App mode selector
+let appModeSelector;
 
 // Template elements
 let templateList;
@@ -106,12 +177,30 @@ const checkBrowserCompatibility = () => {
   return true;
 };
 
+// Load template list from savedTemplates
+function loadTemplateList() {
+  // Clear the current template list
+  templateList.innerHTML = '';
+  
+  // Add each template to the list
+  Object.keys(savedTemplates).forEach(templateId => {
+    const template = savedTemplates[templateId];
+    const listItem = document.createElement('li');
+    const button = document.createElement('button');
+    button.setAttribute('data-template', templateId);
+    button.textContent = template.name;
+    listItem.appendChild(button);
+    templateList.appendChild(listItem);
+  });
+}
+
 // Initialize the app when the window has loaded
 document.addEventListener('DOMContentLoaded', () => {
   if (!checkBrowserCompatibility()) return;
   
   initializeElements();
   setupEventListeners();
+  loadTemplateList();
 });
 
 // Initialize DOM elements
@@ -120,6 +209,7 @@ function initializeElements() {
   fullscreenBtn = document.getElementById('fullscreen-btn');
   windowBtn = document.getElementById('window-btn');
   tabBtn = document.getElementById('tab-btn');
+  regionBtn = document.getElementById('region-btn');
   captureBtn = document.getElementById('capture-btn');
   exportBtn = document.getElementById('export-btn');
   exportWordBtn = document.getElementById('export-word-btn');
@@ -137,12 +227,23 @@ function initializeElements() {
   tabButtons = document.querySelectorAll('.tab-button');
   tabPanes = document.querySelectorAll('.tab-pane');
   
-  // Metadata elements
+  // General metadata elements
+  metaCategory = document.getElementById('meta-category');
+  metaAuthor = document.getElementById('meta-author');
+  metaProject = document.getElementById('meta-project');
+  metaTags = document.getElementById('meta-tags');
+  metaTimestamp = document.getElementById('meta-timestamp');
+  
+  // Validation metadata elements
   metaEnvironment = document.getElementById('meta-environment');
   metaTester = document.getElementById('meta-tester');
   metaSoftware = document.getElementById('meta-software');
   metaTestId = document.getElementById('meta-test-id');
-  metaTimestamp = document.getElementById('meta-timestamp');
+  metaProtocol = document.getElementById('meta-protocol');
+  metaTimestampValidation = document.getElementById('meta-timestamp-validation');
+  
+  // App mode selector
+  appModeSelector = document.getElementById('app-mode');
   
   // Template elements
   templateList = document.getElementById('template-list');
@@ -163,6 +264,22 @@ function initializeElements() {
   textInput = document.getElementById('annotation-text-input');
   addTextBtn = document.getElementById('add-text-btn');
   
+  // Crop elements
+  cropToggle = document.getElementById('crop-toggle');
+  cropModal = document.getElementById('crop-modal');
+  cropCanvas = document.getElementById('crop-canvas');
+  cropOverlay = document.getElementById('crop-overlay');
+  cropCancelBtn = document.getElementById('crop-cancel');
+  cropApplyBtn = document.getElementById('crop-apply');
+  
+  // Region selection elements
+  regionModal = document.getElementById('region-modal');
+  regionPreview = document.getElementById('region-preview');
+  regionOverlay = document.getElementById('region-overlay');
+  regionSize = document.getElementById('region-size');
+  regionCancelBtn = document.getElementById('region-cancel');
+  regionCaptureBtn = document.getElementById('region-capture');
+  
   // Sequence elements
   sequenceToggle = document.getElementById('sequence-toggle');
   sequenceControls = document.getElementById('sequence-controls');
@@ -176,9 +293,14 @@ function setupEventListeners() {
   fullscreenBtn.addEventListener('click', () => selectCaptureMode('fullscreen'));
   windowBtn.addEventListener('click', () => selectCaptureMode('window'));
   tabBtn.addEventListener('click', () => selectCaptureMode('tab'));
+  regionBtn.addEventListener('click', () => selectCaptureMode('region'));
   
   // Capture button
   captureBtn.addEventListener('click', captureScreenshot);
+  
+  // Region selection events
+  regionCancelBtn.addEventListener('click', cancelRegionSelection);
+  regionCaptureBtn.addEventListener('click', captureSelectedRegion);
   
   // Export buttons
   exportBtn.addEventListener('click', exportScreenshots);
@@ -219,6 +341,11 @@ function setupEventListeners() {
   annotationCancelBtn.addEventListener('click', cancelAnnotation);
   annotationClearBtn.addEventListener('click', clearAnnotation);
   
+  // Crop events
+  cropToggle.addEventListener('click', openCropModal);
+  cropCancelBtn.addEventListener('click', cancelCrop);
+  cropApplyBtn.addEventListener('click', applyCrop);
+  
   // Annotation tools
   annotationTools.forEach(tool => {
     tool.addEventListener('click', () => {
@@ -254,6 +381,31 @@ function setupEventListeners() {
   // Sequential capture
   sequenceToggle.addEventListener('change', toggleSequentialMode);
   sequenceNameInput.addEventListener('input', updateSequenceName);
+  
+  // App mode
+  appModeSelector.addEventListener('change', switchAppMode);
+}
+
+// Switch app mode between general and validation
+function switchAppMode() {
+  appMode = appModeSelector.value;
+  
+  // Update UI based on mode
+  if (appMode === 'general') {
+    document.getElementById('general-metadata').style.display = 'block';
+    document.getElementById('validation-metadata').style.display = 'none';
+    savedTemplates = savedGeneralTemplates;
+  } else {
+    document.getElementById('general-metadata').style.display = 'none';
+    document.getElementById('validation-metadata').style.display = 'block';
+    savedTemplates = savedValidationTemplates;
+  }
+  
+  // Reload template list
+  loadTemplateList();
+  
+  // Show status
+  showStatus(`Switched to ${appMode === 'general' ? 'General Purpose' : 'GMP Validation'} mode`, 'success');
 }
 
 // Toggle sequential mode
@@ -295,11 +447,19 @@ function applyTemplate(templateId) {
   if (savedTemplates[templateId]) {
     const template = savedTemplates[templateId];
     
-    // Apply the template values to the form
+    // Apply the template values to the form based on app mode
     screenshotNameInput.value = template.name || '';
-    metaEnvironment.value = template.environment || 'QA';
-    metaSoftware.value = template.software || '';
-    metaTestId.value = template.testId || '';
+    
+    if (appMode === 'general') {
+      metaCategory.value = template.category || 'General';
+      metaProject.value = template.project || '';
+      metaTags.value = template.tags || '';
+    } else {
+      metaEnvironment.value = template.environment || 'QA';
+      metaSoftware.value = template.software || '';
+      metaTestId.value = template.testId || '';
+      metaProtocol.value = template.protocol || '';
+    }
     
     activeTemplate = templateId;
     showStatus(`Applied template: ${template.name}`, 'success');
@@ -321,13 +481,30 @@ function saveTemplate() {
   // Create a template ID from the name (lowercase, no spaces)
   const templateId = name.toLowerCase().replace(/[^a-z0-9]/g, '-');
   
-  // Save the template
-  savedTemplates[templateId] = {
-    name: name,
-    environment: metaEnvironment.value,
-    software: metaSoftware.value,
-    testId: metaTestId.value
-  };
+  if (appMode === 'general') {
+    // Save general template
+    savedTemplates[templateId] = {
+      name: name,
+      category: metaCategory.value,
+      project: metaProject.value,
+      tags: metaTags.value
+    };
+    
+    // Save to localStorage
+    localStorage.setItem('screenshotGeneralTemplates', JSON.stringify(savedGeneralTemplates));
+  } else {
+    // Save validation template
+    savedTemplates[templateId] = {
+      name: name,
+      environment: metaEnvironment.value,
+      software: metaSoftware.value,
+      testId: metaTestId.value,
+      protocol: metaProtocol.value
+    };
+    
+    // Save to localStorage
+    localStorage.setItem('screenshotValidationTemplates', JSON.stringify(savedValidationTemplates));
+  }
   
   // Add to the template list
   const listItem = document.createElement('li');
@@ -354,13 +531,19 @@ function openAnnotationModal() {
   originalImage = modalPreview.src;
   
   img.onload = function() {
-    // Set canvas dimensions
+    // Cache the image object for better performance during shape drawing
+    originalImageObj = img;
+    
+    // Set canvas dimensions to match the image exactly
     annotationCanvas.width = img.width;
     annotationCanvas.height = img.height;
     
     // Get the context and draw the image
-    annotationCtx = annotationCanvas.getContext('2d');
+    annotationCtx = annotationCanvas.getContext('2d', { willReadFrequently: true });
     annotationCtx.drawImage(img, 0, 0, annotationCanvas.width, annotationCanvas.height);
+    
+    // Initialize the current image data to preserve annotations
+    currentImageData = annotationCtx.getImageData(0, 0, annotationCanvas.width, annotationCanvas.height);
     
     // Initialize drawing settings
     setActiveTool(currentTool);
@@ -418,16 +601,30 @@ function setActiveWidth(width) {
 function startDrawing(e) {
   isDrawing = true;
   
-  // Get canvas position
+  // Save the current state of the canvas with all annotations
+  if (annotationCanvas) {
+    currentImageData = annotationCtx.getImageData(0, 0, annotationCanvas.width, annotationCanvas.height);
+  }
+  
+  // Get exact canvas coordinates relative to the viewport
   const rect = annotationCanvas.getBoundingClientRect();
-  startX = e.clientX - rect.left;
-  startY = e.clientY - rect.top;
+  const scaleX = annotationCanvas.width / rect.width;    // Relationship bitmap vs. element for X
+  const scaleY = annotationCanvas.height / rect.height;  // Relationship bitmap vs. element for Y
+  
+  startX = (e.clientX - rect.left) * scaleX;   // Scale mouse coordinates to canvas coordinates
+  startY = (e.clientY - rect.top) * scaleY;
   
   // For text tool, show input field at click position
   if (currentTool === 'text') {
     textInputContainer.style.display = 'flex';
-    textInputContainer.style.left = (e.clientX + 10) + 'px';
-    textInputContainer.style.top = (e.clientY + 10) + 'px';
+    
+    // Store the exact position within the canvas where text should be added
+    textInputContainer.dataset.canvasX = startX;
+    textInputContainer.dataset.canvasY = startY;
+    
+    // Position the input box near the cursor but not directly under it
+    textInputContainer.style.left = (e.clientX + 5) + 'px';
+    textInputContainer.style.top = (e.clientY + 5) + 'px';
     textInput.focus();
     isDrawing = false;
     return;
@@ -440,18 +637,45 @@ function startDrawing(e) {
   }
 }
 
+// For shape preview
+let originalImageObj = null;  // Cached original image 
+let currentImageData = null;  // Current state of the canvas with all annotations
+
 // Draw as the mouse moves
 function draw(e) {
   if (!isDrawing) return;
   
+  // Get exact canvas coordinates relative to the viewport
   const rect = annotationCanvas.getBoundingClientRect();
-  const x = e.clientX - rect.left;
-  const y = e.clientY - rect.top;
+  const scaleX = annotationCanvas.width / rect.width;    // Relationship bitmap vs. element for X
+  const scaleY = annotationCanvas.height / rect.height;  // Relationship bitmap vs. element for Y
+  
+  const x = (e.clientX - rect.left) * scaleX;   // Scale mouse coordinates to canvas coordinates
+  const y = (e.clientY - rect.top) * scaleY;
   
   if (currentTool === 'draw') {
     // Freehand drawing
     annotationCtx.lineTo(x, y);
     annotationCtx.stroke();
+  } else {
+    // For other tools, create a live preview while dragging
+    if (currentImageData) {
+      // Restore the canvas with all previous annotations
+      annotationCtx.putImageData(currentImageData, 0, 0);
+      
+      // Now draw the current shape based on start and current positions
+      switch(currentTool) {
+        case 'arrow':
+          drawArrow(startX, startY, x, y);
+          break;
+        case 'rectangle':
+          drawRectangle(startX, startY, x, y);
+          break;
+        case 'circle':
+          drawCircle(startX, startY, x, y);
+          break;
+      }
+    }
   }
 }
 
@@ -459,25 +683,44 @@ function draw(e) {
 function stopDrawing(e) {
   if (!isDrawing) return;
   
+  // Get exact canvas coordinates relative to the viewport
   const rect = annotationCanvas.getBoundingClientRect();
-  const x = e.clientX - rect.left;
-  const y = e.clientY - rect.top;
+  const scaleX = annotationCanvas.width / rect.width;    // Relationship bitmap vs. element for X
+  const scaleY = annotationCanvas.height / rect.height;  // Relationship bitmap vs. element for Y
   
-  // Handle different drawing tools
-  switch(currentTool) {
-    case 'draw':
-      // Drawing is already done in the draw function
-      break;
-    case 'arrow':
-      drawArrow(startX, startY, x, y);
-      break;
-    case 'rectangle':
-      drawRectangle(startX, startY, x, y);
-      break;
-    case 'circle':
-      drawCircle(startX, startY, x, y);
-      break;
+  const x = (e.clientX - rect.left) * scaleX;   // Scale mouse coordinates to canvas coordinates
+  const y = (e.clientY - rect.top) * scaleY;
+  
+  // For the final shape, draw one more time to ensure it's correctly placed
+  if (currentTool !== 'draw') {
+    // Final drawing with correct coordinates
+    switch(currentTool) {
+      case 'arrow':
+        // Restore last state and draw final arrow
+        if (currentImageData) {
+          annotationCtx.putImageData(currentImageData, 0, 0);
+          drawArrow(startX, startY, x, y);
+        }
+        break;
+      case 'rectangle':
+        // Restore last state and draw final rectangle
+        if (currentImageData) {
+          annotationCtx.putImageData(currentImageData, 0, 0);
+          drawRectangle(startX, startY, x, y);
+        }
+        break;
+      case 'circle':
+        // Restore last state and draw final circle
+        if (currentImageData) {
+          annotationCtx.putImageData(currentImageData, 0, 0);
+          drawCircle(startX, startY, x, y);
+        }
+        break;
+    }
   }
+  
+  // After finishing, update the current image data to include this annotation
+  currentImageData = annotationCtx.getImageData(0, 0, annotationCanvas.width, annotationCanvas.height);
   
   isDrawing = false;
 }
@@ -526,17 +769,17 @@ function addTextToCanvas() {
   const text = textInput.value.trim();
   
   if (text && annotationCtx) {
-    // Position from the text input container
-    const rect = annotationCanvas.getBoundingClientRect();
-    const containerRect = textInputContainer.getBoundingClientRect();
-    
-    const x = containerRect.left - rect.left;
-    const y = containerRect.top - rect.top;
+    // Use the stored canvas coordinates for exact placement
+    const x = parseInt(textInputContainer.dataset.canvasX) || 0;
+    const y = parseInt(textInputContainer.dataset.canvasY) || 0;
     
     // Set text properties
     annotationCtx.font = '16px Arial';
     annotationCtx.fillStyle = currentColor;
     annotationCtx.fillText(text, x, y);
+    
+    // Save the canvas state after adding text
+    currentImageData = annotationCtx.getImageData(0, 0, annotationCanvas.width, annotationCanvas.height);
     
     // Clear and hide the input
     textInput.value = '';
@@ -581,11 +824,192 @@ function clearAnnotation() {
     img.onload = function() {
       annotationCtx.clearRect(0, 0, annotationCanvas.width, annotationCanvas.height);
       annotationCtx.drawImage(img, 0, 0, annotationCanvas.width, annotationCanvas.height);
+      
+      // Reset the currentImageData to the original image
+      currentImageData = annotationCtx.getImageData(0, 0, annotationCanvas.width, annotationCanvas.height);
     };
   }
 }
 
-// Select capture mode (fullscreen, window, tab)
+// Open the crop modal
+function openCropModal() {
+  isCropping = true;
+  cropModal.style.display = 'flex';
+  
+  // Set up the canvas
+  const img = new Image();
+  img.src = modalPreview.src;
+  
+  img.onload = function() {
+    // Set canvas dimensions
+    cropCanvas.width = img.width;
+    cropCanvas.height = img.height;
+    
+    // Get the context and draw the image
+    cropCtx = cropCanvas.getContext('2d', { willReadFrequently: true });
+    cropCtx.drawImage(img, 0, 0, cropCanvas.width, cropCanvas.height);
+    
+    // Initialize crop area selection
+    setupCropEvents();
+  };
+}
+
+// Setup crop events
+function setupCropEvents() {
+  const canvasContainer = cropCanvas.parentElement;
+  
+  // Reset crop overlay
+  cropOverlay.style.display = 'none';
+  isCreatingCrop = false;
+  isDraggingCrop = false;
+  isResizingCrop = false;
+  
+  // Mouse down - start creating crop area
+  cropCanvas.addEventListener('mousedown', startCropSelection);
+  
+  // Mouse move - update crop area
+  cropCanvas.addEventListener('mousemove', updateCropSelection);
+  
+  // Mouse up - finish creating crop area
+  document.addEventListener('mouseup', endCropSelection);
+  
+  // Prevent default actions
+  cropCanvas.addEventListener('dragstart', function(e) {
+    e.preventDefault();
+  });
+}
+
+// Start crop selection
+function startCropSelection(e) {
+  // Get exact canvas coordinates
+  const rect = cropCanvas.getBoundingClientRect();
+  const scaleX = cropCanvas.width / rect.width;
+  const scaleY = cropCanvas.height / rect.height;
+  
+  // Calculate cursor position relative to the canvas
+  cropStartX = (e.clientX - rect.left) * scaleX;
+  cropStartY = (e.clientY - rect.top) * scaleY;
+  
+  // Initialize crop box at cursor position
+  cropBox.x = cropStartX;
+  cropBox.y = cropStartY;
+  cropBox.width = 0;
+  cropBox.height = 0;
+  
+  isCreatingCrop = true;
+}
+
+// Update crop selection
+function updateCropSelection(e) {
+  if (!isCreatingCrop) return;
+  
+  const rect = cropCanvas.getBoundingClientRect();
+  const scaleX = cropCanvas.width / rect.width;
+  const scaleY = cropCanvas.height / rect.height;
+  
+  // Calculate cursor position relative to the canvas
+  const mouseX = (e.clientX - rect.left) * scaleX;
+  const mouseY = (e.clientY - rect.top) * scaleY;
+  
+  // Calculate width and height
+  const width = mouseX - cropStartX;
+  const height = mouseY - cropStartY;
+  
+  // Update crop box
+  cropBox.width = width;
+  cropBox.height = height;
+  
+  // Update crop overlay
+  updateCropOverlay();
+}
+
+// End crop selection
+function endCropSelection() {
+  if (isCreatingCrop) {
+    isCreatingCrop = false;
+    
+    // Normalize crop box (in case of negative width/height from user dragging)
+    if (cropBox.width < 0) {
+      cropBox.x += cropBox.width;
+      cropBox.width = Math.abs(cropBox.width);
+    }
+    
+    if (cropBox.height < 0) {
+      cropBox.y += cropBox.height;
+      cropBox.height = Math.abs(cropBox.height);
+    }
+    
+    // Ensure crop box is fully within canvas bounds
+    cropBox.x = Math.max(0, cropBox.x);
+    cropBox.y = Math.max(0, cropBox.y);
+    cropBox.width = Math.min(cropBox.width, cropCanvas.width - cropBox.x);
+    cropBox.height = Math.min(cropBox.height, cropCanvas.height - cropBox.y);
+    
+    // Update crop overlay
+    updateCropOverlay();
+  }
+}
+
+// Update crop overlay
+function updateCropOverlay() {
+  // Convert canvas coordinates to screen coordinates
+  const rect = cropCanvas.getBoundingClientRect();
+  const scaleX = rect.width / cropCanvas.width;
+  const scaleY = rect.height / cropCanvas.height;
+  
+  const screenX = cropBox.x * scaleX + rect.left;
+  const screenY = cropBox.y * scaleY + rect.top;
+  const screenWidth = cropBox.width * scaleX;
+  const screenHeight = cropBox.height * scaleY;
+  
+  // Update overlay position and size
+  cropOverlay.style.left = screenX + 'px';
+  cropOverlay.style.top = screenY + 'px';
+  cropOverlay.style.width = screenWidth + 'px';
+  cropOverlay.style.height = screenHeight + 'px';
+  cropOverlay.style.display = 'block';
+}
+
+// Apply crop
+function applyCrop() {
+  if (cropBox.width > 0 && cropBox.height > 0) {
+    // Create a temporary canvas for the cropped image
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = cropBox.width;
+    tempCanvas.height = cropBox.height;
+    
+    const tempCtx = tempCanvas.getContext('2d');
+    
+    // Draw the cropped portion of the image
+    tempCtx.drawImage(
+      cropCanvas, 
+      cropBox.x, cropBox.y, cropBox.width, cropBox.height, 
+      0, 0, cropBox.width, cropBox.height
+    );
+    
+    // Get the cropped image data
+    const croppedImage = tempCanvas.toDataURL('image/png');
+    
+    // Update the preview
+    modalPreview.src = croppedImage;
+    
+    // Close the modal
+    cropModal.style.display = 'none';
+    isCropping = false;
+    
+    showStatus('Image cropped successfully', 'success');
+  } else {
+    showStatus('Please select an area to crop', 'error');
+  }
+}
+
+// Cancel the crop
+function cancelCrop() {
+  cropModal.style.display = 'none';
+  isCropping = false;
+}
+
+// Select capture mode (fullscreen, window, tab, region)
 function selectCaptureMode(mode) {
   captureMode = mode;
   
@@ -593,6 +1017,7 @@ function selectCaptureMode(mode) {
   fullscreenBtn.classList.remove('selected');
   windowBtn.classList.remove('selected');
   tabBtn.classList.remove('selected');
+  regionBtn.classList.remove('selected');
   
   switch(mode) {
     case 'fullscreen':
@@ -604,8 +1029,18 @@ function selectCaptureMode(mode) {
     case 'tab':
       tabBtn.classList.add('selected');
       break;
+    case 'region':
+      regionBtn.classList.add('selected');
+      break;
   }
 }
+
+// Variables for region selection
+let regionMediaStream = null;
+let regionSelectionActive = false;
+let regionStartX = 0;
+let regionStartY = 0;
+let regionBox = { x: 0, y: 0, width: 0, height: 0 };
 
 // Capture screenshot function
 async function captureScreenshot() {
@@ -615,6 +1050,12 @@ async function captureScreenshot() {
   updateButtonStates(true);
   
   try {
+    // For region selection, open the region modal
+    if (captureMode === 'region') {
+      startRegionSelection();
+      return;
+    }
+    
     // Configure options based on the selected mode
     const displayMediaOptions = {
       video: {
@@ -627,6 +1068,8 @@ async function captureScreenshot() {
     switch(captureMode) {
       case 'fullscreen':
         displayMediaOptions.video.displaySurface = 'monitor';
+        // Remove toolbar flag to avoid the sharing indicator
+        displayMediaOptions.video.selfBrowserSurface = 'exclude';
         break;
       case 'window':
         displayMediaOptions.video.displaySurface = 'window';
@@ -692,6 +1135,216 @@ async function captureScreenshot() {
   }
 }
 
+// Start the region selection process
+async function startRegionSelection() {
+  try {
+    // Configure display media options for region selection
+    const displayMediaOptions = {
+      video: {
+        cursor: 'always',
+        displaySurface: 'monitor'
+      },
+      audio: false
+    };
+    
+    // Show the region selection modal
+    regionModal.style.display = 'flex';
+    
+    // Request screen capture permissions
+    regionMediaStream = await navigator.mediaDevices.getDisplayMedia(displayMediaOptions);
+    
+    // Set the video source
+    regionPreview.srcObject = regionMediaStream;
+    
+    // Setup region selection events when video is loaded
+    regionPreview.onloadedmetadata = () => {
+      regionPreview.play();
+      setupRegionSelectionEvents();
+    };
+    
+  } catch (error) {
+    console.error('Error starting region selection:', error);
+    
+    if (error.name === 'NotAllowedError') {
+      showStatus('Permission denied. Please allow screen capture access.', 'error');
+    } else {
+      showStatus('Failed to start region selection', 'error');
+    }
+    
+    cancelRegionSelection();
+  }
+}
+
+// Setup region selection events
+function setupRegionSelectionEvents() {
+  regionSelectionActive = false;
+  
+  // Reset region overlay
+  regionOverlay.style.display = 'none';
+  
+  // Mouse down - start creating region selection
+  regionPreview.addEventListener('mousedown', startRegionDrag);
+  
+  // Mouse move - update region selection
+  regionPreview.addEventListener('mousemove', updateRegionDrag);
+  
+  // Mouse up - finish creating region selection
+  document.addEventListener('mouseup', endRegionDrag);
+  
+  // Prevent default actions
+  regionPreview.addEventListener('dragstart', function(e) {
+    e.preventDefault();
+  });
+}
+
+// Start region drag
+function startRegionDrag(e) {
+  regionSelectionActive = true;
+  
+  const rect = regionPreview.getBoundingClientRect();
+  regionStartX = e.clientX - rect.left;
+  regionStartY = e.clientY - rect.top;
+  
+  // Initialize region box
+  regionBox.x = regionStartX;
+  regionBox.y = regionStartY;
+  regionBox.width = 0;
+  regionBox.height = 0;
+  
+  updateRegionOverlay();
+}
+
+// Update region drag
+function updateRegionDrag(e) {
+  if (!regionSelectionActive) return;
+  
+  const rect = regionPreview.getBoundingClientRect();
+  const mouseX = e.clientX - rect.left;
+  const mouseY = e.clientY - rect.top;
+  
+  // Calculate width and height
+  regionBox.width = mouseX - regionStartX;
+  regionBox.height = mouseY - regionStartY;
+  
+  // Update size display
+  regionSize.textContent = `${Math.abs(Math.round(regionBox.width))} x ${Math.abs(Math.round(regionBox.height))}`;
+  
+  // Update region overlay
+  updateRegionOverlay();
+}
+
+// End region drag
+function endRegionDrag() {
+  if (regionSelectionActive) {
+    regionSelectionActive = false;
+    
+    // Normalize region box
+    if (regionBox.width < 0) {
+      regionBox.x += regionBox.width;
+      regionBox.width = Math.abs(regionBox.width);
+    }
+    
+    if (regionBox.height < 0) {
+      regionBox.y += regionBox.height;
+      regionBox.height = Math.abs(regionBox.height);
+    }
+    
+    updateRegionOverlay();
+  }
+}
+
+// Update region overlay
+function updateRegionOverlay() {
+  regionOverlay.style.left = regionBox.x + 'px';
+  regionOverlay.style.top = regionBox.y + 'px';
+  regionOverlay.style.width = Math.abs(regionBox.width) + 'px';
+  regionOverlay.style.height = Math.abs(regionBox.height) + 'px';
+  regionOverlay.style.display = 'block';
+}
+
+// Capture the selected region
+function captureSelectedRegion() {
+  if (regionBox.width <= 0 || regionBox.height <= 0) {
+    showStatus('Please select a region to capture', 'error');
+    return;
+  }
+  
+  try {
+    // Calculate the scale factor between the video element and the actual video dimensions
+    const videoRect = regionPreview.getBoundingClientRect();
+    const scaleX = regionPreview.videoWidth / videoRect.width;
+    const scaleY = regionPreview.videoHeight / videoRect.height;
+    
+    // Calculate the actual coordinates in the video
+    const sourceX = regionBox.x * scaleX;
+    const sourceY = regionBox.y * scaleY;
+    const sourceWidth = regionBox.width * scaleX;
+    const sourceHeight = regionBox.height * scaleY;
+    
+    // Create a canvas to draw the region
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.abs(sourceWidth);
+    canvas.height = Math.abs(sourceHeight);
+    
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(
+      regionPreview, 
+      sourceX, sourceY, sourceWidth, sourceHeight,
+      0, 0, canvas.width, canvas.height
+    );
+    
+    // Get the screenshot data
+    const screenshot = canvas.toDataURL('image/png');
+    
+    // Close the region selection modal
+    regionModal.style.display = 'none';
+    
+    // Stop the screen capture
+    if (regionMediaStream) {
+      regionMediaStream.getTracks().forEach(track => track.stop());
+      regionMediaStream = null;
+    }
+    
+    // Remove event listeners
+    regionPreview.removeEventListener('mousedown', startRegionDrag);
+    regionPreview.removeEventListener('mousemove', updateRegionDrag);
+    document.removeEventListener('mouseup', endRegionDrag);
+    
+    // Save the screenshot
+    currentScreenshot = screenshot;
+    showNameModal(screenshot);
+    
+    showStatus('Region captured successfully', 'success');
+    
+  } catch (error) {
+    console.error('Error capturing region:', error);
+    showStatus('Failed to capture region', 'error');
+    cancelRegionSelection();
+  } finally {
+    isCapturing = false;
+    updateButtonStates(false);
+  }
+}
+
+// Cancel region selection
+function cancelRegionSelection() {
+  regionModal.style.display = 'none';
+  
+  // Stop the screen capture
+  if (regionMediaStream) {
+    regionMediaStream.getTracks().forEach(track => track.stop());
+    regionMediaStream = null;
+  }
+  
+  // Remove event listeners
+  regionPreview.removeEventListener('mousedown', startRegionDrag);
+  regionPreview.removeEventListener('mousemove', updateRegionDrag);
+  document.removeEventListener('mouseup', endRegionDrag);
+  
+  isCapturing = false;
+  updateButtonStates(false);
+}
+
 // Show the name modal with screenshot preview
 function showNameModal(screenshot) {
   // Reset the active tab
@@ -714,15 +1367,27 @@ function showNameModal(screenshot) {
   
   screenshotNameInput.value = defaultName;
   
-  // Set default metadata
-  const savedTester = localStorage.getItem('metaTester');
-  if (savedTester) {
-    metaTester.value = savedTester;
-  }
-  
-  const savedSoftware = localStorage.getItem('metaSoftware');
-  if (savedSoftware) {
-    metaSoftware.value = savedSoftware;
+  // Set default metadata based on app mode
+  if (appMode === 'general') {
+    const savedAuthor = localStorage.getItem('metaAuthor');
+    if (savedAuthor) {
+      metaAuthor.value = savedAuthor;
+    }
+    
+    const savedProject = localStorage.getItem('metaProject');
+    if (savedProject) {
+      metaProject.value = savedProject;
+    }
+  } else {
+    const savedTester = localStorage.getItem('metaTester');
+    if (savedTester) {
+      metaTester.value = savedTester;
+    }
+    
+    const savedSoftware = localStorage.getItem('metaSoftware');
+    if (savedSoftware) {
+      metaSoftware.value = savedSoftware;
+    }
   }
   
   screenshotNameInput.focus();
@@ -738,36 +1403,87 @@ function saveScreenshot() {
     return;
   }
   
-  // Collect metadata
-  const metadata = {
-    environment: metaEnvironment.value,
-    tester: metaTester.value,
-    software: metaSoftware.value,
-    testId: metaTestId.value,
-    timestamp: metaTimestamp.checked ? new Date().toISOString() : null,
-    sequentialInfo: sequentialMode ? {
-      sequenceName: sequenceName,
-      stepNumber: sequenceCounter
-    } : null
-  };
+  // Check if we're editing an existing screenshot
+  const isEditing = typeof currentScreenshot === 'object' && currentScreenshot.index !== undefined;
   
-  // Save tester and software in local storage for convenience
-  if (metaTester.value) {
-    localStorage.setItem('metaTester', metaTester.value);
+  // If the screenshot has been annotated, use the annotated image
+  if (!isEditing && modalPreview.src !== currentScreenshot) {
+    // Save the annotated version instead
+    currentScreenshot = modalPreview.src;
   }
   
-  if (metaSoftware.value) {
-    localStorage.setItem('metaSoftware', metaSoftware.value);
+  // Collect metadata based on current app mode
+  let metadata;
+  
+  if (appMode === 'general') {
+    metadata = {
+      mode: 'general',
+      category: metaCategory.value,
+      author: metaAuthor.value,
+      project: metaProject.value,
+      tags: metaTags.value,
+      timestamp: metaTimestamp.checked ? new Date().toISOString() : null,
+      sequentialInfo: sequentialMode ? {
+        sequenceName: sequenceName,
+        stepNumber: sequenceCounter
+      } : null
+    };
+    
+    // Save author and project in local storage for convenience
+    if (metaAuthor.value) {
+      localStorage.setItem('metaAuthor', metaAuthor.value);
+    }
+    
+    if (metaProject.value) {
+      localStorage.setItem('metaProject', metaProject.value);
+    }
+  } else {
+    metadata = {
+      mode: 'validation',
+      environment: metaEnvironment.value,
+      tester: metaTester.value,
+      software: metaSoftware.value,
+      testId: metaTestId.value,
+      protocol: metaProtocol.value,
+      timestamp: metaTimestampValidation.checked ? new Date().toISOString() : null,
+      sequentialInfo: sequentialMode ? {
+        sequenceName: sequenceName,
+        stepNumber: sequenceCounter
+      } : null
+    };
+    
+    // Save tester and software in local storage for convenience
+    if (metaTester.value) {
+      localStorage.setItem('metaTester', metaTester.value);
+    }
+    
+    if (metaSoftware.value) {
+      localStorage.setItem('metaSoftware', metaSoftware.value);
+    }
   }
   
-  // Add the screenshot to the collection
-  screenshots.push({
-    dataUrl: currentScreenshot,
-    name: name,
-    timestamp: new Date().toISOString(),
-    type: captureMode,
-    metadata: metadata
-  });
+  if (isEditing) {
+    // Update the existing screenshot
+    const index = currentScreenshot.index;
+    screenshots[index].name = name;
+    screenshots[index].metadata = metadata;
+    
+    // If the image was annotated, update the data URL
+    if (modalPreview.src !== currentScreenshot.dataUrl) {
+      screenshots[index].dataUrl = modalPreview.src;
+    }
+    
+    showStatus('Screenshot updated', 'success');
+  } else {
+    // Add a new screenshot to the collection
+    screenshots.push({
+      dataUrl: typeof currentScreenshot === 'object' ? currentScreenshot.dataUrl : currentScreenshot,
+      name: name,
+      timestamp: new Date().toISOString(),
+      type: captureMode,
+      metadata: metadata
+    });
+  }
   
   // Hide the modal
   nameModal.style.display = 'none';
@@ -829,18 +1545,54 @@ function updateScreenshotList() {
     if (screenshot.metadata) {
       const metadata = screenshot.metadata;
       
-      if (metadata.environment) {
-        const badge = document.createElement('span');
-        badge.className = 'badge';
-        badge.textContent = metadata.environment;
-        metadataContainer.appendChild(badge);
-      }
+      // Add mode badge
+      const modeBadge = document.createElement('span');
+      modeBadge.className = 'badge mode';
+      modeBadge.textContent = metadata.mode === 'validation' ? 'GMP' : 'General';
+      metadataContainer.appendChild(modeBadge);
       
-      if (metadata.testId) {
-        const badge = document.createElement('span');
-        badge.className = 'badge';
-        badge.textContent = metadata.testId;
-        metadataContainer.appendChild(badge);
+      if (metadata.mode === 'general') {
+        // General metadata badges
+        if (metadata.category) {
+          const badge = document.createElement('span');
+          badge.className = 'badge';
+          badge.textContent = metadata.category;
+          metadataContainer.appendChild(badge);
+        }
+        
+        if (metadata.tags) {
+          const tagList = metadata.tags.split(',');
+          tagList.slice(0, 3).forEach(tag => {
+            if (tag.trim()) {
+              const badge = document.createElement('span');
+              badge.className = 'badge tag';
+              badge.textContent = tag.trim();
+              metadataContainer.appendChild(badge);
+            }
+          });
+          
+          if (tagList.length > 3) {
+            const badge = document.createElement('span');
+            badge.className = 'badge tag-more';
+            badge.textContent = `+${tagList.length - 3}`;
+            metadataContainer.appendChild(badge);
+          }
+        }
+      } else {
+        // Validation metadata badges
+        if (metadata.environment) {
+          const badge = document.createElement('span');
+          badge.className = 'badge environment';
+          badge.textContent = metadata.environment;
+          metadataContainer.appendChild(badge);
+        }
+        
+        if (metadata.testId) {
+          const badge = document.createElement('span');
+          badge.className = 'badge test-id';
+          badge.textContent = metadata.testId;
+          metadataContainer.appendChild(badge);
+        }
       }
       
       if (metadata.sequentialInfo) {
@@ -860,12 +1612,18 @@ function updateScreenshotList() {
     downloadBtn.textContent = 'Download';
     downloadBtn.addEventListener('click', () => downloadScreenshot(screenshot, index));
     
+    const editBtn = document.createElement('button');
+    editBtn.className = 'edit-btn';
+    editBtn.textContent = 'Edit';
+    editBtn.addEventListener('click', () => editScreenshot(index));
+    
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'delete-btn';
     deleteBtn.textContent = 'Delete';
     deleteBtn.addEventListener('click', () => deleteScreenshot(index));
     
     controls.appendChild(downloadBtn);
+    controls.appendChild(editBtn);
     controls.appendChild(deleteBtn);
     
     item.appendChild(title);
@@ -904,6 +1662,52 @@ function downloadScreenshot(screenshot, index) {
   document.body.removeChild(link);
   
   showStatus('Screenshot downloaded', 'success');
+}
+
+// Edit a screenshot
+function editScreenshot(index) {
+  const screenshot = screenshots[index];
+  
+  // Set the preview image
+  modalPreview.src = screenshot.dataUrl;
+  nameModal.style.display = 'flex';
+  
+  // Set form values from the screenshot
+  screenshotNameInput.value = screenshot.name;
+  
+  // Set metadata values if available
+  if (screenshot.metadata) {
+    const metadata = screenshot.metadata;
+    
+    // Switch app mode to match the metadata mode if necessary
+    if (metadata.mode && metadata.mode !== appMode) {
+      appModeSelector.value = metadata.mode;
+      switchAppMode();
+    }
+    
+    if (appMode === 'general') {
+      metaCategory.value = metadata.category || 'General';
+      metaAuthor.value = metadata.author || '';
+      metaProject.value = metadata.project || '';
+      metaTags.value = metadata.tags || '';
+      metaTimestamp.checked = !!metadata.timestamp;
+    } else {
+      metaEnvironment.value = metadata.environment || 'QA';
+      metaTester.value = metadata.tester || '';
+      metaSoftware.value = metadata.software || '';
+      metaTestId.value = metadata.testId || '';
+      metaProtocol.value = metadata.protocol || '';
+      metaTimestampValidation.checked = !!metadata.timestamp;
+    }
+  }
+  
+  // Focus on the name input
+  screenshotNameInput.focus();
+  
+  // Store the index to know which screenshot to update
+  currentScreenshot = { dataUrl: screenshot.dataUrl, index: index };
+  
+  showStatus('Editing screenshot metadata', 'success');
 }
 
 // Delete a screenshot
@@ -951,20 +1755,42 @@ function getMetadataText(metadata) {
   
   let text = '';
   
-  if (metadata.environment) {
-    text += `Environment: ${metadata.environment} | `;
-  }
-  
-  if (metadata.testId) {
-    text += `Test ID: ${metadata.testId} | `;
-  }
-  
-  if (metadata.software) {
-    text += `Software: ${metadata.software} | `;
-  }
-  
-  if (metadata.tester) {
-    text += `Tester: ${metadata.tester} | `;
+  if (metadata.mode === 'general' || !metadata.mode) {
+    if (metadata.category) {
+      text += `Category: ${metadata.category} | `;
+    }
+    
+    if (metadata.tags) {
+      text += `Tags: ${metadata.tags} | `;
+    }
+    
+    if (metadata.project) {
+      text += `Project: ${metadata.project} | `;
+    }
+    
+    if (metadata.author) {
+      text += `Author: ${metadata.author} | `;
+    }
+  } else {
+    if (metadata.environment) {
+      text += `Environment: ${metadata.environment} | `;
+    }
+    
+    if (metadata.testId) {
+      text += `Test ID: ${metadata.testId} | `;
+    }
+    
+    if (metadata.software) {
+      text += `Software: ${metadata.software} | `;
+    }
+    
+    if (metadata.tester) {
+      text += `Tester: ${metadata.tester} | `;
+    }
+    
+    if (metadata.protocol) {
+      text += `Protocol: ${metadata.protocol} | `;
+    }
   }
   
   if (metadata.timestamp) {
@@ -997,7 +1823,7 @@ async function exportToWord() {
     // Create an array of promises for processing each screenshot
     const documentElements = await Promise.all(
       screenshots.map(async (screenshot) => {
-        // Convert data URL to array buffer
+        // Convert data URL to array buffer - this already includes annotations since we store the final image
         const imageBuffer = await dataURLToArrayBuffer(screenshot.dataUrl);
         
         // Get metadata text

@@ -1,6 +1,6 @@
-# QA/QC Screenshot Tool (Web Version)
+# ScreenshotApp
 
-A powerful web-based screenshot tool designed for pharmaceutical QA/QC documentation and software validation.
+A powerful web-based screenshot tool for capturing, annotating, and documenting application and website screenshots.
 
 ## Features
 
@@ -77,6 +77,9 @@ A powerful web-based screenshot tool designed for pharmaceutical QA/QC documenta
 
 To run this tool locally, simply open the `index.html` file in a web browser.
 
-## Note for Pharmaceutical Validation
+## Use Cases
 
-This tool is designed to create 21 CFR Part 11 compliant documentation for software validation when used with appropriate procedural controls. 
+- Software testing and bug reporting
+- Documentation and tutorials
+- User guides and training materials
+- Quality assurance and validation 
